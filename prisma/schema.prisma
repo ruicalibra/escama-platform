@@ -1,0 +1,651 @@
+// ═══════════════════════════════════════════════════════════════════
+// ESCAMA PLATFORM — Prisma Schema
+// Converted from schema.sql v1.0
+// PostgreSQL 15+
+// ═══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ───────────────────────────────────────────────────────────
+
+enum UserRole {
+  superadmin
+  admin
+  supplier
+  courier
+  customer
+}
+
+enum UnitType {
+  kg
+  g
+  un
+  lt
+  ml
+  caixa
+  dz
+}
+
+enum ProductType {
+  fresh
+  frozen
+  processed
+  live
+  dried
+}
+
+enum PaymentMethodType {
+  multicaixa_express
+  multicaixa_reference
+  bank_transfer
+  cash_on_delivery
+  visa_mastercard
+  paypal
+  crypto
+  store_credit
+}
+
+enum OrderStatus {
+  draft
+  pending
+  paid
+  confirmed
+  preparing
+  ready
+  out_for_delivery
+  delivered
+  cancelled
+  refunded
+}
+
+enum DeliveryType {
+  delivery
+  pickup
+  express
+}
+
+// ─── TENANTS ────────────────────────────────────────────────────────
+
+model Tenant {
+  id           String   @id @default(uuid())
+  slug         String   @unique
+  name         String
+  logoUrl      String?  @map("logo_url")
+  countryCode  String   @default("AO") @map("country_code")
+  currencyCode String   @default("AOA") @map("currency_code")
+  timezone     String   @default("Africa/Luanda")
+  phone        String?
+  email        String?
+  whatsapp     String?
+  address      String?
+  settings     Json     @default("{}")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  platformConfigs      PlatformConfig[]
+  users                User[]
+  suppliers            Supplier[]
+  categories           Category[]
+  products             Product[]
+  stockLots            StockLot[]
+  deliveryZones        DeliveryZone[]
+  deliverySlots        DeliverySlot[]
+  paymentMethodsConfig PaymentMethodConfig[]
+  orders               Order[]
+  transactions         Transaction[]
+  notificationTemplates NotificationTemplate[]
+  notifications        Notification[]
+  subscriptions        Subscription[]
+  reviews              Review[]
+  promotions           Promotion[]
+  analyticsEvents      AnalyticsEvent[]
+
+  @@map("tenants")
+}
+
+model PlatformConfig {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  key         String
+  value       Json
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@map("platform_configs")
+}
+
+// ─── USERS ──────────────────────────────────────────────────────────
+
+model User {
+  id             String    @id @default(uuid())
+  tenantId       String?   @map("tenant_id")
+  role           UserRole  @default(customer)
+  name           String
+  email          String?   @unique
+  phone          String?
+  whatsapp       String?
+  passwordHash   String?   @map("password_hash")
+  avatarUrl      String?   @map("avatar_url")
+  language       String    @default("pt")
+  currencyPref   String    @default("AOA") @map("currency_pref")
+  emailVerified  Boolean   @default(false) @map("email_verified")
+  phoneVerified  Boolean   @default(false) @map("phone_verified")
+  active         Boolean   @default(true)
+  lastLogin      DateTime? @map("last_login")
+  metadata       Json      @default("{}")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  tenant        Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  addresses     UserAddress[]
+  supplier      Supplier?
+  ordersAsCustomer Order[]      @relation("CustomerOrders")
+  ordersAsCourier  Order[]      @relation("CourierOrders")
+  orderEvents   OrderEvent[]
+  transactions  Transaction[]
+  notifications Notification[]
+  subscriptions Subscription[]
+  reviewsProduct  Review[]     @relation("ProductReviews")
+  reviewsCourier  Review[]     @relation("CourierReviews")
+  traceabilityEvents TraceabilityEvent[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@map("users")
+}
+
+model UserAddress {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  label       String?
+  street      String
+  district    String?
+  city        String   @default("Luanda")
+  province    String   @default("Luanda")
+  country     String   @default("AO")
+  postalCode  String?  @map("postal_code")
+  notes       String?
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@map("user_addresses")
+}
+
+// ─── SUPPLIERS ──────────────────────────────────────────────────────
+
+model Supplier {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  userId       String?  @unique @map("user_id")
+  name         String
+  type         String?  // lota, pescador, processador, importador
+  locationName String?  @map("location_name")
+  certified    Boolean  @default(false)
+  certNumber   String?  @map("cert_number")
+  rating       Decimal  @default(0) @db.Decimal(3, 2)
+  active       Boolean  @default(true)
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User?      @relation(fields: [userId], references: [id])
+  products  Product[]
+  stockLots StockLot[]
+
+  @@map("suppliers")
+}
+
+// ─── CATALOGUE ──────────────────────────────────────────────────────
+
+model Category {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  parentId  String?  @map("parent_id")
+  name      String
+  slug      String
+  icon      String?
+  imageUrl  String?  @map("image_url")
+  sortOrder Int      @default(0) @map("sort_order")
+  active    Boolean  @default(true)
+
+  tenant   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent   Category?  @relation("CategoryChildren", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryChildren")
+  products Product[]
+
+  @@unique([tenantId, slug])
+  @@map("categories")
+}
+
+model Product {
+  id                 String      @id @default(uuid())
+  tenantId           String      @map("tenant_id")
+  supplierId         String?     @map("supplier_id")
+  categoryId         String?     @map("category_id")
+  sku                String?
+  name               String
+  nameLocal          String?     @map("name_local")
+  description        String?
+  origin             String?
+  species            String?
+  productType        ProductType @default(fresh) @map("product_type")
+  unit               UnitType    @default(kg)
+  price              Decimal     @db.Decimal(14, 2)
+  priceUsd           Decimal?    @map("price_usd") @db.Decimal(14, 2)
+  minQty             Decimal     @default(0.25) @map("min_qty") @db.Decimal(8, 3)
+  maxQty             Decimal?    @map("max_qty") @db.Decimal(8, 3)
+  qtyStep            Decimal     @default(0.25) @map("qty_step") @db.Decimal(8, 3)
+  weightVariable     Boolean     @default(true) @map("weight_variable")
+  allergens          String[]    @default([])
+  certifications     String[]    @default([])
+  images             Json        @default("[]")
+  preparationOptions Json        @default("[]") @map("preparation_options")
+  substitutionPolicy String      @default("contact") @map("substitution_policy")
+  nutritionalInfo    Json        @default("{}") @map("nutritional_info")
+  storageTemp        String?     @map("storage_temp")
+  shelfLifeDays      Int?        @map("shelf_life_days")
+  tags               String[]    @default([])
+  featured           Boolean     @default(false)
+  active             Boolean     @default(true)
+  sortOrder          Int         @default(0) @map("sort_order")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
+
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier    Supplier?     @relation(fields: [supplierId], references: [id])
+  category    Category?     @relation(fields: [categoryId], references: [id])
+  stockLots   StockLot[]
+  orderItems  OrderItem[]
+  reviews     Review[]
+  traceabilityEvents TraceabilityEvent[]
+
+  @@unique([tenantId, sku])
+  @@map("products")
+}
+
+model StockLot {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  productId        String   @map("product_id")
+  supplierId       String?  @map("supplier_id")
+  lotDate          DateTime @default(now()) @map("lot_date") @db.Date
+  quantityTotal    Decimal  @map("quantity_total") @db.Decimal(10, 3)
+  quantityAvail    Decimal  @map("quantity_avail") @db.Decimal(10, 3)
+  quantityReserved Decimal  @default(0) @map("quantity_reserved") @db.Decimal(10, 3)
+  priceOverride    Decimal? @map("price_override") @db.Decimal(14, 2)
+  catchDate        DateTime? @map("catch_date") @db.Date
+  catchLocation    String?  @map("catch_location")
+  notes            String?
+  arrivedAt        DateTime @default(now()) @map("arrived_at")
+  expiresAt        DateTime? @map("expires_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier   Supplier?   @relation(fields: [supplierId], references: [id])
+  orderItems OrderItem[]
+  traceabilityEvents TraceabilityEvent[]
+
+  @@unique([productId, lotDate])
+  @@map("stock_lots")
+}
+
+// ─── DELIVERY ───────────────────────────────────────────────────────
+
+model DeliveryZone {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  description String?
+  deliveryFee Decimal  @default(0) @map("delivery_fee") @db.Decimal(14, 2)
+  minOrder    Decimal  @default(0) @map("min_order") @db.Decimal(14, 2)
+  freeAbove   Decimal? @map("free_above") @db.Decimal(14, 2)
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0) @map("sort_order")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliverySlots DeliverySlot[]
+  orders        Order[]
+
+  @@map("delivery_zones")
+}
+
+model DeliverySlot {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  zoneId     String?  @map("zone_id")
+  dayOfWeek  Int[]    @map("day_of_week")
+  startTime  String   @map("start_time")
+  endTime    String   @map("end_time")
+  cutoffTime String   @map("cutoff_time")
+  maxOrders  Int      @default(20) @map("max_orders")
+  active     Boolean  @default(true)
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveryZone  DeliveryZone?  @relation(fields: [zoneId], references: [id])
+  orders        Order[]
+  subscriptions Subscription[]
+
+  @@map("delivery_slots")
+}
+
+// ─── PAYMENTS ───────────────────────────────────────────────────────
+
+model PaymentMethodConfig {
+  id          String            @id @default(uuid())
+  tenantId    String            @map("tenant_id")
+  type        PaymentMethodType
+  label       String
+  labelEn     String?           @map("label_en")
+  description String?
+  iconUrl     String?           @map("icon_url")
+  enabled     Boolean           @default(true)
+  sortOrder   Int               @default(0) @map("sort_order")
+  feePercent  Decimal           @default(0) @map("fee_percent") @db.Decimal(5, 2)
+  feeFixed    Decimal           @default(0) @map("fee_fixed") @db.Decimal(14, 2)
+  minAmount   Decimal?          @map("min_amount") @db.Decimal(14, 2)
+  maxAmount   Decimal?          @map("max_amount") @db.Decimal(14, 2)
+  credentials Json              @default("{}")
+  instructions String?
+  countries   String[]          @default([])
+  currencies  String[]          @default([])
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, type])
+  @@map("payment_methods_config")
+}
+
+// ─── ORDERS ─────────────────────────────────────────────────────────
+
+model Order {
+  id                 String             @id @default(uuid())
+  tenantId           String             @map("tenant_id")
+  reference          String             @unique
+  customerId         String?            @map("customer_id")
+  courierId          String?            @map("courier_id")
+  status             OrderStatus        @default(pending)
+  deliveryType       DeliveryType       @default(delivery) @map("delivery_type")
+  deliveryAddress    Json?              @map("delivery_address")
+  deliveryZoneId     String?            @map("delivery_zone_id")
+  deliverySlotId     String?            @map("delivery_slot_id")
+  scheduledDate      DateTime?          @map("scheduled_date") @db.Date
+  scheduledStart     String?            @map("scheduled_start")
+  scheduledEnd       String?            @map("scheduled_end")
+  subtotalEstimated  Decimal            @map("subtotal_estimated") @db.Decimal(14, 2)
+  subtotalFinal      Decimal?           @map("subtotal_final") @db.Decimal(14, 2)
+  deliveryFee        Decimal            @default(0) @map("delivery_fee") @db.Decimal(14, 2)
+  discountAmount     Decimal            @default(0) @map("discount_amount") @db.Decimal(14, 2)
+  taxAmount          Decimal            @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  totalEstimated     Decimal            @map("total_estimated") @db.Decimal(14, 2)
+  totalFinal         Decimal?           @map("total_final") @db.Decimal(14, 2)
+  paymentMethod      PaymentMethodType? @map("payment_method")
+  paymentStatus      String             @default("pending") @map("payment_status")
+  paymentReference   String?            @map("payment_reference")
+  paymentData        Json               @default("{}") @map("payment_data")
+  paidAt             DateTime?          @map("paid_at")
+  currency           String             @default("AOA")
+  exchangeRate       Decimal            @default(1) @map("exchange_rate") @db.Decimal(14, 6)
+  customerNotes      String?            @map("customer_notes")
+  adminNotes         String?            @map("admin_notes")
+  courierNotes       String?            @map("courier_notes")
+  confirmedAt        DateTime?          @map("confirmed_at")
+  preparingAt        DateTime?          @map("preparing_at")
+  readyAt            DateTime?          @map("ready_at")
+  pickedUpAt         DateTime?          @map("picked_up_at")
+  deliveredAt        DateTime?          @map("delivered_at")
+  cancelledAt        DateTime?          @map("cancelled_at")
+  cancelReason       String?            @map("cancel_reason")
+  deliveryPhotoUrl   String?            @map("delivery_photo_url")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer     User?         @relation("CustomerOrders", fields: [customerId], references: [id])
+  courier      User?         @relation("CourierOrders", fields: [courierId], references: [id])
+  deliveryZone DeliveryZone? @relation(fields: [deliveryZoneId], references: [id])
+  deliverySlot DeliverySlot? @relation(fields: [deliverySlotId], references: [id])
+  items        OrderItem[]
+  events       OrderEvent[]
+  transactions Transaction[]
+  notifications Notification[]
+  reviews      Review[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id                 String    @id @default(uuid())
+  orderId            String    @map("order_id")
+  productId          String?   @map("product_id")
+  lotId              String?   @map("lot_id")
+  productName        String    @map("product_name")
+  productImage       String?   @map("product_image")
+  quantityOrdered    Decimal   @map("quantity_ordered") @db.Decimal(8, 3)
+  quantityActual     Decimal?  @map("quantity_actual") @db.Decimal(8, 3)
+  unit               UnitType?
+  pricePerUnit       Decimal   @map("price_per_unit") @db.Decimal(14, 2)
+  preparation        String?
+  substitutionPolicy String?   @map("substitution_policy")
+  customerNote       String?   @map("customer_note")
+  subtotalEstimated  Decimal   @map("subtotal_estimated") @db.Decimal(14, 2)
+  subtotalActual     Decimal?  @map("subtotal_actual") @db.Decimal(14, 2)
+  status             String    @default("pending")
+  adminNote          String?   @map("admin_note")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  order   Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product?  @relation(fields: [productId], references: [id])
+  lot     StockLot? @relation(fields: [lotId], references: [id])
+
+  @@map("order_items")
+}
+
+model OrderEvent {
+  id        String      @id @default(uuid())
+  orderId   String      @map("order_id")
+  userId    String?     @map("user_id")
+  event     OrderStatus
+  note      String?
+  metadata  Json        @default("{}")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id])
+
+  @@map("order_events")
+}
+
+model Transaction {
+  id              String            @id @default(uuid())
+  tenantId        String?           @map("tenant_id")
+  orderId         String?           @map("order_id")
+  userId          String?           @map("user_id")
+  method          PaymentMethodType
+  status          String            @default("pending")
+  amount          Decimal           @db.Decimal(14, 2)
+  currency        String
+  amountUsd       Decimal?          @map("amount_usd") @db.Decimal(14, 2)
+  fee             Decimal           @default(0) @db.Decimal(14, 2)
+  netAmount       Decimal?          @map("net_amount") @db.Decimal(14, 2)
+  externalId      String?           @map("external_id")
+  externalRef     String?           @map("external_ref")
+  gatewayResponse Json              @default("{}") @map("gateway_response")
+  initiatedAt     DateTime          @default(now()) @map("initiated_at")
+  completedAt     DateTime?         @map("completed_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  order  Order?  @relation(fields: [orderId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@map("transactions")
+}
+
+// ─── NOTIFICATIONS ──────────────────────────────────────────────────
+
+model NotificationTemplate {
+  id        String   @id @default(uuid())
+  tenantId  String?  @map("tenant_id")
+  key       String
+  channel   String
+  language  String   @default("pt")
+  subject   String?
+  body      String
+  active    Boolean  @default(true)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, key, channel, language])
+  @@map("notification_templates")
+}
+
+model Notification {
+  id          String    @id @default(uuid())
+  tenantId    String?   @map("tenant_id")
+  userId      String?   @map("user_id")
+  orderId     String?   @map("order_id")
+  channel     String
+  templateKey String?   @map("template_key")
+  recipient   String
+  subject     String?
+  body        String
+  status      String    @default("pending")
+  externalId  String?   @map("external_id")
+  error       String?
+  sentAt      DateTime? @map("sent_at")
+  readAt      DateTime? @map("read_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+  order  Order?  @relation(fields: [orderId], references: [id])
+
+  @@map("notifications")
+}
+
+// ─── MISC ────────────────────────────────────────────────────────────
+
+model Subscription {
+  id                String            @id @default(uuid())
+  tenantId          String?           @map("tenant_id")
+  customerId        String?           @map("customer_id")
+  name              String?
+  frequency         String            @default("weekly")
+  status            String            @default("active")
+  items             Json              @default("[]")
+  deliveryAddressId String?           @map("delivery_address_id")
+  deliverySlotId    String?           @map("delivery_slot_id")
+  paymentMethod     PaymentMethodType? @map("payment_method")
+  nextOrderDate     DateTime?         @map("next_order_date") @db.Date
+  discountPercent   Decimal           @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  totalEstimated    Decimal?          @map("total_estimated") @db.Decimal(14, 2)
+  createdAt         DateTime          @default(now()) @map("created_at")
+
+  tenant          Tenant?        @relation(fields: [tenantId], references: [id])
+  customer        User?          @relation(fields: [customerId], references: [id])
+  deliveryAddress UserAddress?   @relation(fields: [deliveryAddressId], references: [id])
+  deliverySlot    DeliverySlot?  @relation(fields: [deliverySlotId], references: [id])
+
+  @@map("subscriptions")
+}
+
+model Review {
+  id              String   @id @default(uuid())
+  tenantId        String?  @map("tenant_id")
+  orderId         String?  @map("order_id")
+  customerId      String?  @map("customer_id")
+  productId       String?  @map("product_id")
+  courierId       String?  @map("courier_id")
+  ratingProduct   Int?     @map("rating_product")
+  ratingDelivery  Int?     @map("rating_delivery")
+  ratingFreshness Int?     @map("rating_freshness")
+  comment         String?
+  visible         Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant?  @relation(fields: [tenantId], references: [id])
+  order    Order?   @relation(fields: [orderId], references: [id])
+  customer User?    @relation("ProductReviews", fields: [customerId], references: [id])
+  product  Product? @relation(fields: [productId], references: [id])
+  courier  User?    @relation("CourierReviews", fields: [courierId], references: [id])
+
+  @@map("reviews")
+}
+
+model ExchangeRate {
+  id       String   @id @default(uuid())
+  fromCurr String   @map("from_curr")
+  toCurr   String   @map("to_curr")
+  rate     Decimal  @db.Decimal(18, 6)
+  source   String   @default("manual")
+  validAt  DateTime @default(now()) @map("valid_at")
+
+  @@map("exchange_rates")
+}
+
+model Promotion {
+  id           String    @id @default(uuid())
+  tenantId     String?   @map("tenant_id")
+  code         String?
+  name         String
+  type         String
+  value        Decimal   @db.Decimal(14, 2)
+  minOrder     Decimal   @default(0) @map("min_order") @db.Decimal(14, 2)
+  maxUses      Int?      @map("max_uses")
+  usesCount    Int       @default(0) @map("uses_count")
+  applicableTo Json      @default("{}") @map("applicable_to")
+  validFrom    DateTime? @map("valid_from")
+  validUntil   DateTime? @map("valid_until")
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@map("promotions")
+}
+
+model TraceabilityEvent {
+  id             String   @id @default(uuid())
+  productId      String?  @map("product_id")
+  lotId          String?  @map("lot_id")
+  eventType      String?  @map("event_type")
+  locationName   String?  @map("location_name")
+  actorId        String?  @map("actor_id")
+  temperature    Decimal? @db.Decimal(5, 2)
+  metadata       Json     @default("{}")
+  blockchainHash String?  @map("blockchain_hash")
+  occurredAt     DateTime @default(now()) @map("occurred_at")
+
+  product Product?  @relation(fields: [productId], references: [id])
+  lot     StockLot? @relation(fields: [lotId], references: [id])
+  actor   User?     @relation(fields: [actorId], references: [id])
+
+  @@map("traceability_events")
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(uuid())
+  tenantId   String?  @map("tenant_id")
+  userId     String?  @map("user_id")
+  sessionId  String?  @map("session_id")
+  event      String?
+  properties Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@map("analytics_events")
+}

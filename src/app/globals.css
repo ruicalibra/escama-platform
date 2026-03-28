@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-playfair: "Playfair Display", Georgia, serif;
+  --font-nunito: "Nunito", system-ui, sans-serif;
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+}
+
+@layer base {
+  *, *::before, *::after {
+    -webkit-tap-highlight-color: transparent;
+  }
+  html, body { height: 100%; }
+  body { -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { display: none; }
+  * { scrollbar-width: none; }
+}
+
+@layer components {
+  .app-shell {
+    @apply w-full max-w-[430px] h-dvh mx-auto bg-white flex flex-col relative overflow-hidden;
+    box-shadow: 0 0 60px rgba(0,0,0,0.08);
+  }
+  .btn-ocean {
+    @apply bg-gradient-to-br from-ocean to-ocean-dark text-white font-bold rounded-md;
+    box-shadow: 0 6px 20px rgba(13,110,253,0.3);
+  }
+  .btn-ocean:hover {
+    box-shadow: 0 8px 28px rgba(13,110,253,0.4);
+  }
+  .card-escama {
+    @apply bg-white rounded-md border border-escama-border;
+    box-shadow: 0 2px 12px rgba(13,110,253,0.08);
+  }
+  .field-input {
+    @apply w-full bg-ice border-2 border-transparent rounded-sm px-4 py-3 text-sm font-body text-escama-text outline-none transition-all;
+  }
+  .field-input:focus {
+    @apply bg-white border-ocean;
+    box-shadow: 0 0 0 3px rgba(13,110,253,0.1);
+  }
+  .field-input::placeholder { @apply text-escama-text-3; }
+  .screen-enter {
+    animation: screenIn 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  }
+  @keyframes screenIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
