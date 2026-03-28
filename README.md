@@ -280,3 +280,4 @@ git push origin main  # Vercel detecta e faz deploy automático
 - **Autenticação:** JWT strategy. O token inclui `role`, `tenantId` e `tenantSlug` para evitar queries extra por request.
 - **Middleware:** Protege rotas `/admin/*` (requer role admin/superadmin/supplier) e `/courier/*` (requer role courier).
 - **API Routes:** Sem Express. Todas as rotas usam os Route Handlers nativos do Next.js App Router.
+"# escama-platform" 
